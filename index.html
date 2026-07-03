@@ -149,7 +149,7 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--sage);}
 <body>
 
 <header>
-  <button class="share-btn" onclick="openShareSheet()" aria-label="Share and sync">
+  <button class="share-btn" onclick="openShareSheet()" aria-label="Back up to other phone">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3"/></svg>
   </button>
   <div class="brand">Kin<em>keep</em></div>
@@ -252,21 +252,32 @@ function vCardFor(p){
   v+='END:VCARD\n';
   return v;
 }
-async function saveToContacts(p){
+async function saveToContacts(id){
+  const p=people.find(x=>x.id===id);
+  if(!p){alert("Couldn't find that person.");return;}
+  const filename=`${p.name.replace(/[^\w\- ]/g,'')}.vcf`;
   const vcard=vCardFor(p);
   try{
-    const file=new File([vcard],`${p.name.replace(/[^\w\- ]/g,'')}.vcf`,{type:'text/vcard'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file],title:p.name});
-      return;
+    if(navigator.canShare){
+      const file=new File([vcard],filename,{type:'text/vcard'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:p.name});
+        return; // user completed (or cancelled) the OS share sheet — either way, done here
+      }
     }
-  }catch(e){/* fall through to download */}
+  }catch(e){
+    if(e && e.name==='AbortError')return; // they backed out of the share sheet on purpose
+    // otherwise fall through to the download method below
+  }
   try{
     const url=URL.createObjectURL(new Blob([vcard],{type:'text/vcard'}));
-    const a=document.createElement('a');a.href=url;a.download=`${p.name.replace(/[^\w\- ]/g,'')}.vcf`;
+    const a=document.createElement('a');a.href=url;a.download=filename;
     document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
-  }catch(e){alert("Couldn't create the contact file on this device.");}
+    alert(`Saved "${filename}" to your Downloads. Open your notification shade (or the Downloads app) and tap it once — your phone will offer to add ${p.name} to Contacts.`);
+  }catch(e){
+    alert("Couldn't create the contact file on this device. You can add them manually in your Contacts app instead.");
+  }
 }
 
 // ---------- Discussion tips: gentle, offline, keyed to what you've recorded ----------
@@ -359,7 +370,7 @@ function renderPeople(){
   const quietest=people.slice().sort((a,b)=>a.lastContact-b.lastContact)[0];
   const nudge=quietest?`<div class="nudge"><div class="dot"></div><div><b>Quietest lately: ${esc(quietest.name)}</b><p>Last reached out ${fmtLast(quietest)} ago. The Keep up tab ranks everyone by who's gone quiet longest.</p></div></div>`:'';
   const lsd=lastShareDays();
-  const backup=(people.some(p=>!p.sample))&&(lsd===null||lsd>30)?`<div class="nudge" style="background:#fdf3e3;border-color:#ecd9b0"><div class="dot" style="background:var(--amber,#C99A3E)"></div><div><b>${lsd===null?'No backup code sent yet':'Last code shared '+lsd+' days ago'}</b><p>The share code is also your backup. Tap the share icon, send one to your spouse — takes a minute.</p></div></div>`:'';
+  const backup=(people.some(p=>!p.sample))&&(lsd===null||lsd>30)?`<div class="nudge" style="background:#fdf3e3;border-color:#ecd9b0"><div class="dot" style="background:var(--amber,#C99A3E)"></div><div><b>${lsd===null?'Not backed up to your spouse\'s phone yet':'Last backed up '+lsd+' days ago'}</b><p>Tap the ⇄ icon top-right to back up to other phone — send your list, takes a minute.</p></div></div>`:'';
   const samples=people.filter(p=>p.sample).length;
   const sampleBar=samples?`<div class="import-bar"><button onclick="removeSamples()" style="color:var(--clay)">Remove the ${samples} example people</button></div>`:'';
   const imp=`<div class="import-bar">
@@ -771,11 +782,11 @@ async function mergeIncoming(incoming){
 function openShareSheet(){
   const c=document.getElementById('sheet-content');
   c.innerHTML=`
-    <div class="sheet-head"><h2>Share with your spouse</h2><button class="x" onclick="closeAll()">×</button></div>
+    <div class="sheet-head"><h2>Back up to other phone</h2><button class="x" onclick="closeAll()">×</button></div>
     <div class="sheet-body">
       <div class="share-block">
         <h3>Send your list</h3>
-        <p>Creates a code with everyone in your Kinkeep. Send it to your spouse in a text — she pastes it into hers and it merges in.</p>
+        <p>Creates a code with everyone in your Kinkeep. Text it to your spouse — they paste it in and it merges into theirs.</p>
         <textarea class="codebox" id="export-code" readonly placeholder="Tap Create code to generate"></textarea>
         <div class="share-actions">
           <button class="primary" onclick="makeCode()">Create code</button>
@@ -784,9 +795,9 @@ function openShareSheet(){
         </div>
       </div>
       <div class="share-block">
-        <h3>Add her list to mine</h3>
-        <p>Paste a code she sent you. New people get added; anyone you both have gets combined — most recent visit and all notes are kept.</p>
-        <textarea class="codebox" id="import-code" placeholder="Paste the code she sent you here"></textarea>
+        <h3>Add list to mine</h3>
+        <p>Paste a code your spouse sent you. New people get added; anyone you both have gets combined — most recent visit and all notes are kept.</p>
+        <textarea class="codebox" id="import-code" placeholder="Paste the code your spouse sent you here"></textarea>
         <div class="share-actions">
           <button class="primary" onclick="doImport()">Merge into my list</button>
         </div>
