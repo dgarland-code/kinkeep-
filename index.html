@@ -190,7 +190,7 @@ const INTERESTS=['Playdates','Gives gifts','Church','Neighbors','Baking','Garden
 let people=[];
 let gather={type:'all',interests:[],target:15,favorStale:true,tenure:'any',ageMatch:'off',selected:new Set()};
 // our own kids' ages, used for the "similar-age kids" lean (editable in the age control)
-let myKids=[3,5];
+let myKids=[]; // each: {age, asOf} — age as reported on the asOf date; current age is computed, never stale
 
 // ---------- Storage (phone-native; persists offline as an installed app) ----------
 const STORE_KEY='kinkeep.people.v1';
@@ -207,8 +207,27 @@ async function load(){
     const rk=localStorage.getItem(KIDS_KEY);
     if(rk)myKids=JSON.parse(rk);
     loadRole();
+    migrateKidAges(); // one-time: old plain-number ages become {age,asOf} so they auto-age going forward
   }catch(e){people=seed();}
   render();
+}
+// Converts any legacy plain-number kid ages into {age,asOf:now} objects.
+// Today's displayed age is unchanged by this — it only starts auto-incrementing from here on.
+function migrateKidAges(){
+  let changed=false;
+  const fix=k=>{
+    if(typeof k==='number'){changed=true;return{age:k,asOf:Date.now()};}
+    return k;
+  };
+  people.forEach(p=>{if(p.kids&&p.kids.length)p.kids=p.kids.map(fix);});
+  if(myKids&&myKids.length){const before=JSON.stringify(myKids);myKids=myKids.map(fix);if(JSON.stringify(myKids)!==before)changed=true;}
+  if(changed)persist();
+}
+// Current age is computed from the stored age + years elapsed since it was recorded — never needs manual updating.
+function currentKidAge(k){
+  if(typeof k==='number')return k; // safety net if called before migration runs
+  const yearsElapsed=Math.floor(daysSince(k.asOf)/365.25);
+  return k.age+yearsElapsed;
 }
 function persist(){try{localStorage.setItem(STORE_KEY,JSON.stringify(people));localStorage.setItem(KIDS_KEY,JSON.stringify(myKids));}catch(e){}}
 async function savePerson(){persist();}
@@ -264,7 +283,7 @@ function knownFor(p){
   const y=(d/365);
   return 'known '+(y<1.5?'1 yr':Math.round(y)+' yrs');
 }
-function kidsSummary(p){if(!p.kids||!p.kids.length)return'';const n=p.kids.length;return `${n} ${n===1?'kid':'kids'} · ages ${p.kids.slice().sort((a,b)=>a-b).join(', ')}`;}
+function kidsSummary(p){if(!p.kids||!p.kids.length)return'';const ages=p.kids.map(currentKidAge).sort((a,b)=>a-b);return `${ages.length} ${ages.length===1?'kid':'kids'} · ages ${ages.join(', ')}`;}
 function smsURL(body,phone){
   const num=(phone||'').replace(/[^0-9+]/g,'');
   return num ? `sms:${num}?&body=${encodeURIComponent(body||'')}` : `sms:?&body=${encodeURIComponent(body||'')}`;
@@ -491,7 +510,7 @@ function renderGroups(){
         <button data-am="off" class="${gather.ageMatch==='off'?'sel':''}">Off</button>
         <button data-am="on" class="${gather.ageMatch==='on'?'sel':''}">On</button>
       </div>
-      <div class="hint">Our kids' ages: <b id="mykids-label">${myKids.length?myKids.slice().sort((a,b)=>a-b).join(', '):'none set'}</b> <button onclick="editMyKids()" style="border:none;background:none;color:var(--sage);font-weight:600;cursor:pointer;font-family:inherit;font-size:12px;text-decoration:underline">edit</button> — closest matches float up.</div>
+      <div class="hint">Our kids' ages: <b id="mykids-label">${myKids.length?myKids.map(currentKidAge).sort((a,b)=>a-b).join(', '):'none set'}</b> <button onclick="editMyKids()" style="border:none;background:none;color:var(--sage);font-weight:600;cursor:pointer;font-family:inherit;font-size:12px;text-decoration:underline">edit</button> — closest matches float up.</div>
 
       <div class="toggle-row" style="margin-top:8px">
         <div><div class="lbl">Favor people we haven't seen in a while</div><div class="sub">Lifts the quietest upward too</div></div>
@@ -537,17 +556,20 @@ function drawProgress(){
   el.querySelector('.progress-bar i').style.width=pct+'%';
 }
 function editMyKids(){
-  const cur=myKids.join(', ');
-  const v=prompt("Your kids' ages, comma-separated (e.g. 3, 5):",cur);
+  const cur=myKids.map(currentKidAge).join(', ');
+  const v=prompt("Your kids' current ages, comma-separated (e.g. 3, 5):",cur);
   if(v===null)return;
-  myKids=v.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>!isNaN(n)&&n>=0);
+  const now=Date.now();
+  myKids=v.split(',').map(s=>parseInt(s.trim(),10)).filter(n=>!isNaN(n)&&n>=0).map(age=>({age,asOf:now}));
   persist();render();
 }
-// smallest gap between any of our kids and any of theirs; lower = closer match
+// smallest gap between any of our kids and any of theirs; lower = closer match. Ages are computed fresh each time, so this stays accurate as everyone grows up.
 function ageGap(p){
   if(!myKids.length||!p.kids||!p.kids.length)return null;
   let best=Infinity;
-  myKids.forEach(a=>p.kids.forEach(b=>{best=Math.min(best,Math.abs(a-b));}));
+  const myAges=myKids.map(currentKidAge);
+  const theirAges=p.kids.map(currentKidAge);
+  myAges.forEach(a=>theirAges.forEach(b=>{best=Math.min(best,Math.abs(a-b));}));
   return best;
 }
 function tenureDays(p){return daysSince(p.metDate||Date.now());}
@@ -713,10 +735,10 @@ function openEdit(id,prefillName,prefillPhone){
         <label>Their kids' ages</label>
         <div class="kids-list" id="kids-list"></div>
         <div style="display:flex;gap:8px;margin-top:8px">
-          <input id="f-kidage" type="number" min="0" max="21" inputmode="numeric" placeholder="age" style="flex:1">
+          <input id="f-kidage" type="number" min="0" max="21" inputmode="numeric" placeholder="current age" style="flex:1">
           <button class="btn" style="width:auto;margin:0;padding:11px 18px" onclick="addKid()">Add</button>
         </div>
-        <div class="hint">Add one per child. Ages help you match families for playdates.</div>
+        <div class="hint">Add one per child, their age today. Kinkeep ages them automatically after that — no need to update it yourself.</div>
       </div>
 
       <div id="parents-block" style="${formType==='family'?'':'display:none'}">
@@ -759,11 +781,11 @@ function openEdit(id,prefillName,prefillPhone){
 }
 function renderKids(){
   const el=document.getElementById('kids-list');if(!el)return;
-  el.innerHTML=formKids.length?formKids.map((a,idx)=>`<span class="kid-tag">age ${a}<button onclick="removeKid(${idx})">×</button></span>`).join(''):'<span class="hint" style="margin:0">No kids added yet.</span>';
+  el.innerHTML=formKids.length?formKids.map((k,idx)=>`<span class="kid-tag">age ${currentKidAge(k)}<button onclick="removeKid(${idx})">×</button></span>`).join(''):'<span class="hint" style="margin:0">No kids added yet.</span>';
 }
 function addKid(){
   const inp=document.getElementById('f-kidage');const v=parseInt(inp.value,10);
-  if(!isNaN(v)&&v>=0){formKids.push(v);inp.value='';renderKids();}
+  if(!isNaN(v)&&v>=0){formKids.push({age:v,asOf:Date.now()});inp.value='';renderKids();}
   inp.focus();
 }
 function removeKid(idx){formKids.splice(idx,1);renderKids();}

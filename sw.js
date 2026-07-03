@@ -1,6 +1,6 @@
 // Kinkeep service worker — makes the app open instantly and fully offline.
 // Cache name includes a version; bump it when index.html changes so updates roll out.
-const CACHE = 'kinkeep-v4';
+const CACHE = 'kinkeep-v5';
 const FILES = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', (e) => {
