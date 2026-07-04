@@ -107,8 +107,10 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--sage);}
 .logbtn{width:100%;padding:12px;border:1px dashed var(--sage);color:var(--sage);background:var(--sage-soft);border-radius:12px;font-weight:600;font-size:14px;cursor:pointer;margin-top:10px;font-family:inherit;}
 .note{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:8px;}
 .note small{color:var(--ink-soft);display:block;margin-bottom:3px;}
-.remove-box{margin-top:28px;border-top:1px solid var(--line);padding-top:20px;}
-.remove-box p{font-size:13px;color:var(--ink-soft);line-height:1.5;margin-bottom:4px;}
+.remove-box{margin-top:28px;border-top:1px solid var(--line);padding-top:20px;text-align:center;}
+.remove-box p{font-size:12px;color:var(--ink-soft);line-height:1.5;margin-bottom:8px;}
+.btn-remove-small{width:auto;display:inline-block;padding:7px 14px;border:none;background:none;color:#b0483d;font-size:12.5px;font-weight:500;text-decoration:underline;cursor:pointer;font-family:inherit;opacity:0.7;margin:0;}
+.btn-remove-small:active{opacity:1;}
 
 .filter-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
 .toggle-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;}
@@ -692,10 +694,10 @@ function openDetail(id){
 
       ${logs.length?`<div class="sec-label" style="margin:20px 0 8px">History</div>${logs.map(l=>`<div class="note"><small>${daysSince(l.t)===0?'Today':daysSince(l.t)===1?'Yesterday':daysSince(l.t)+' days ago'}</small>${l.note}</div>`).join('')}`:''}
 
-      <button class="btn ghost" onclick="openEdit('${p.id}')">Edit details</button>
+      <button class="btn" onclick="openEdit('${p.id}')">Edit details</button>
       <div class="remove-box">
         <p>No longer someone you need to keep in touch with?</p>
-        <button class="btn danger" onclick="confirmRemove('${p.id}')">Remove from Kinkeep</button>
+        <button class="btn-remove-small" onclick="confirmRemove('${p.id}')">Remove from Kinkeep</button>
       </div>
     </div>`;
   openSheet();
@@ -987,8 +989,30 @@ function flash(msg){
 }
 
 // ---------- Sheet controls ----------
-function openSheet(){document.getElementById('scrim').classList.add('show');requestAnimationFrame(()=>document.getElementById('sheet').classList.add('show'));}
-function closeAll(){document.getElementById('sheet').classList.remove('show');document.getElementById('scrim').classList.remove('show');}
+let _sheetOpen=false;
+function openSheet(){
+  document.getElementById('scrim').classList.add('show');
+  requestAnimationFrame(()=>document.getElementById('sheet').classList.add('show'));
+  if(!_sheetOpen){
+    // Push a state so we can detect back button press
+    window.history.pushState({kinkeep:'sheet'},'');
+    _sheetOpen=true;
+  }
+}
+function closeAll(){
+  document.getElementById('sheet').classList.remove('show');
+  document.getElementById('scrim').classList.remove('show');
+  _sheetOpen=false;
+}
+// Android back button: if sheet is open, close it and re-push state to stay in the sheet's "history level"
+window.addEventListener('popstate',()=>{
+  if(_sheetOpen){
+    closeAll();
+    // Re-push so next back press closes the app, not open the sheet again
+    window.history.pushState({kinkeep:'sheet'},'');
+  }
+  // If sheet not open, let normal back happen (will exit the app or go to previous page)
+});
 
 load();
 
